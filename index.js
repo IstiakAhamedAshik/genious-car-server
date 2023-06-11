@@ -1,6 +1,7 @@
 const express = require('express')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 require('dotenv').config()
+var jwt = require('jsonwebtoken')
 const cors = require('cors')
 const app = express()
 const port = process.env.PORT || 5000
@@ -19,10 +20,33 @@ const client = new MongoClient(uri, {
   },
 })
 
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization
+  if (!authHeader) {
+    return res.status(401).send({ message: 'unauthorized access' })
+  }
+  const token = authHeader.split(' ')[1]
+  jwt.verify(token, process.env.ACESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(401).send({ message: 'unauthorized access' })
+    }
+    req.decoded = decoded
+    next()
+  })
+}
+
 async function run() {
   try {
     const serviceCollection = client.db('geniousCar').collection('service')
     const orderCollection = client.db('geniousCar').collection('orders')
+
+    app.post('/jwt', async (req, res) => {
+      const user = req.body
+      const token = jwt.sign(user, process.env.ACESS_TOKEN_SECRET, {
+        expiresIn: '1d',
+      })
+      res.send({ token })
+    })
 
     app.get('/service', async (req, res) => {
       const query = {}
@@ -44,9 +68,13 @@ async function run() {
       const result = await orderCollection.insertOne(order)
       res.send(result)
     })
-    app.get('/orders', async (req, res) => {
-      let query = {}
+    app.get('/orders', verifyJWT, async (req, res) => {
+      const decoded = req.decoded
 
+      if (decoded.email !== req.query.email) {
+        return res.status(403).send({ message: 'unauthorized access' })
+      }
+      let query = {}
       if (req.query.email) {
         query = { email: req.query.email }
       }
